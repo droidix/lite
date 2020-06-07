@@ -41,6 +41,7 @@ end
 function tokenizer.tokenize(syntax, text, state)
   local res = {}
   local i = 1
+  local ppscan = syntax.preprocessor ~= nil
 
   if #syntax.patterns == 0 then
     return { "normal", text }
@@ -56,6 +57,10 @@ function tokenizer.tokenize(syntax, text, state)
         push_token(res, p.type, text:sub(i, e))
         state = nil
         i = e + 1
+
+        if p.type ~= "comment" then
+          ppscan = false
+        end
       else
         push_token(res, p.type, text:sub(i))
         break
@@ -64,6 +69,20 @@ function tokenizer.tokenize(syntax, text, state)
 
     -- find matching pattern
     local matched = false
+
+    if ppscan and text:sub(i, i) == "#" then
+      local s, e = text:find("^%s*%a+", i+1);
+      if s then
+        local t = text:sub(i, e)
+        push_token(res, syntax.preprocessor, t)
+        i = e + 1
+      else
+        push_token(res, "normal", "#")
+        i = i + 1
+      end
+      ppscan = false
+    end
+
     for n, p in ipairs(syntax.patterns) do
       local pattern = (type(p.pattern) == "table") and p.pattern[1] or p.pattern
       local s, e = text:find("^" .. pattern, i)
@@ -81,12 +100,22 @@ function tokenizer.tokenize(syntax, text, state)
         -- move cursor past this token
         i = e + 1
         matched = true
+
+        if ppscan and p.type ~= "comment" then
+          ppscan = false
+        end
         break
       end
     end
 
     -- consume character if we didn't match
     if not matched then
+      if ppscan then
+        local ch = text:sub(i, i)
+        if ch ~= " " and ch ~= "\t" then
+          ppscan = false
+        end
+      end
       push_token(res, "normal", text:sub(i, i))
       i = i + 1
     end
